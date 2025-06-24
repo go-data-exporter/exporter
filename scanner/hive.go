@@ -34,7 +34,7 @@ func (h *hiveRowsScanner) ScanRow() ([]any, error) {
 	for i := range len(h.columns) {
 		h.currentRowPtrs[i] = &h.currentRow[i]
 	}
-	h.cursor.FetchOne(h.ctx, h.currentRowPtrs...)
+	h.currentRow = h.cursor.RowSlice(h.ctx)
 	if h.cursor.Err != nil {
 		return nil, h.cursor.Err
 	}

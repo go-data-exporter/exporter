@@ -29,8 +29,14 @@ func (cs *Exporter) WriteFile(filename string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		f.Sync()
+		f.Close()
+	}()
 	if err := cs.Write(f); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
 		return err
 	}
 	return f.Close()
