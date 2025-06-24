@@ -11,23 +11,25 @@ import (
 )
 
 type csvCodec struct {
-	customMapper     map[reflect.Type]func(any, string, scanner.Column) string
-	preProcessorFunc func(row []string) ([]string, bool)
-	delimiter        rune
-	useCRLF          bool
-	writeHeader      bool
-	customHeader     []string
-	nullValue        string
+	customMapper      map[reflect.Type]func(any, string, scanner.Column) string
+	preProcessorFunc  func(row []string) ([]string, bool)
+	delimiter         rune
+	useCRLF           bool
+	writeHeader       bool
+	writeHeaderNoData bool
+	customHeader      []string
+	nullValue         string
 }
 
 type Option func(*csvCodec)
 
 func New(opts ...Option) *csvCodec {
 	cw := &csvCodec{
-		customMapper: make(map[reflect.Type]func(any, string, scanner.Column) string),
-		delimiter:    ',',
-		useCRLF:      false,
-		writeHeader:  true,
+		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) string),
+		delimiter:         ',',
+		useCRLF:           false,
+		writeHeader:       true,
+		writeHeaderNoData: true,
 	}
 	for _, opt := range opts {
 		opt(cw)
@@ -71,12 +73,13 @@ func (cs *csvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	csvCodec.UseCRLF = cs.useCRLF
 	defer csvCodec.Flush()
 
-	if cs.writeHeader {
+	if cs.writeHeader && cs.writeHeaderNoData && len(header) != 0 {
 		if err = csvCodec.Write(header); err != nil {
 			return fmt.Errorf("failed to write headers: %w", err)
 		}
 	}
-	for rows.Next() {
+
+	for i := 0; rows.Next(); i++ {
 		values, err := rows.ScanRow()
 		if err != nil {
 			return err
@@ -90,6 +93,11 @@ func (cs *csvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			row, writeRow = cs.preProcessorFunc(row)
 		}
 		if writeRow {
+			if cs.writeHeader && i == 0 && !cs.writeHeaderNoData {
+				if err = csvCodec.Write(header); err != nil {
+					return fmt.Errorf("failed to write headers: %w", err)
+				}
+			}
 			csvCodec.Write(row)
 		}
 	}
@@ -117,6 +125,12 @@ func WithCRLF(useCRLF bool) Option {
 func WithHeader(writeHeader bool) Option {
 	return func(cw *csvCodec) {
 		cw.writeHeader = writeHeader
+	}
+}
+
+func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
+	return func(cw *csvCodec) {
+		cw.writeHeaderNoData = writeHeaderNoData
 	}
 }
 

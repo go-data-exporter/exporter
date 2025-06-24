@@ -13,18 +13,20 @@ import (
 )
 
 type htmlCodec struct {
-	customMapper     map[reflect.Type]func(any, string, scanner.Column) string
-	preProcessorFunc func(row []string) ([]string, bool)
-	writeHeader      bool
-	nullValue        string
+	customMapper      map[reflect.Type]func(any, string, scanner.Column) string
+	preProcessorFunc  func(row []string) ([]string, bool)
+	writeHeader       bool
+	writeHeaderNoData bool
+	nullValue         string
 }
 
 type Option func(*htmlCodec)
 
 func New(opts ...Option) *htmlCodec {
 	cw := &htmlCodec{
-		customMapper: make(map[reflect.Type]func(any, string, scanner.Column) string),
-		writeHeader:  true,
+		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) string),
+		writeHeader:       true,
+		writeHeaderNoData: true,
 	}
 	for _, opt := range opts {
 		opt(cw)
@@ -45,12 +47,7 @@ func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) st
 	}
 }
 
-func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
-	cols, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-	writer.Write([]byte(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Go Export</title><style>
+var htmlPrefix = strings.Join(strings.Fields(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Go Export</title><style>
 	body, html {
 	  margin: 0;
 	  padding: 0;
@@ -83,8 +80,15 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	  margin-top: 5px;
 	  color: #333;
 	}
-	</style> </head><body><table style="width:100%;border-spacing:0px;">`))
-	if c.writeHeader {
+	</style> </head><body><table style="width:100%;border-spacing:0px;">`), " ")
+
+func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	if c.writeHeader && c.writeHeaderNoData && len(cols) != 0 {
+		writer.Write([]byte(htmlPrefix))
 		writer.Write([]byte(`<thead style="position:sticky;top:0;z-index:99;background:#f9f9f9;">`))
 		for _, col := range cols {
 			writer.Write(fmt.Appendf(nil, "<th><p>%s</p><p class=typ>%s</p></th>", col.Name(),
@@ -92,8 +96,8 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		}
 		writer.Write([]byte(`</thead>`))
 	}
-	writer.Write([]byte(`<tbody>`))
-	for rows.Next() {
+	i := 0
+	for ; rows.Next(); i++ {
 		values, err := rows.ScanRow()
 		if err != nil {
 			return err
@@ -107,6 +111,18 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			row, writeRow = c.preProcessorFunc(row)
 		}
 		if writeRow {
+			if c.writeHeader && i == 0 && !c.writeHeaderNoData {
+				writer.Write([]byte(htmlPrefix))
+				writer.Write([]byte(`<thead style="position:sticky;top:0;z-index:99;background:#f9f9f9;">`))
+				for _, col := range cols {
+					writer.Write(fmt.Appendf(nil, "<th><p>%s</p><p class=typ>%s</p></th>", col.Name(),
+						strings.ToLower(col.DatabaseTypeName())))
+				}
+				writer.Write([]byte(`</thead>`))
+			}
+			if i == 0 {
+				writer.Write([]byte(`<tbody>`))
+			}
 			writer.Write([]byte(`<tr>`))
 			for i := range row {
 				writer.Write(fmt.Appendf(nil, "<td>%s</td>", row[i]))
@@ -114,7 +130,12 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			writer.Write([]byte(`</tr>`))
 		}
 	}
-	writer.Write([]byte(`</tbody></table></body></html>`))
+	if i != 0 {
+		writer.Write([]byte(`</tbody>`))
+		writer.Write([]byte(`</table></body></html>`))
+	} else if c.writeHeader && c.writeHeaderNoData && len(cols) != 0 {
+		writer.Write([]byte(`</table></body></html>`))
+	}
 	return rows.Err()
 }
 
@@ -199,5 +220,11 @@ func WithHeader(writeHeader bool) Option {
 func WithCustomNULL(nullValue string) Option {
 	return func(cw *htmlCodec) {
 		cw.nullValue = nullValue
+	}
+}
+
+func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
+	return func(cw *htmlCodec) {
+		cw.writeHeaderNoData = writeHeaderNoData
 	}
 }
