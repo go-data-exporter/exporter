@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/beltran/gohive"
+	"github.com/go-data-exporter/gohive"
 )
 
 type hiveRowsScanner struct {
