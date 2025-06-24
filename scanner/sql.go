@@ -29,6 +29,13 @@ func (s *sqlRowsScanner) Columns() ([]Column, error) {
 }
 
 func (s *sqlRowsScanner) ScanRow() ([]any, error) {
+	if s.columns == nil {
+		var err error
+		s.columns, err = s.Columns()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if s.currentRow == nil {
 		s.currentRow = make([]any, len(s.columns))
 	}
