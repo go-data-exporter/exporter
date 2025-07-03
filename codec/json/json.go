@@ -63,6 +63,11 @@ func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	}
 
 	i := 0
+	defer func() {
+		if !cs.newlineDelimited && i != 0 {
+			writer.Write([]byte("\n]\n"))
+		}
+	}()
 	for ; rows.Next(); i++ {
 		values, err := rows.ScanRow()
 		if err != nil {
@@ -102,9 +107,6 @@ func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			writer.Write(data)
 			writer.Write([]byte("\n"))
 		}
-	}
-	if !cs.newlineDelimited && i != 0 {
-		writer.Write([]byte("\n]\n"))
 	}
 	return nil
 }

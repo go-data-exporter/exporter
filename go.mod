@@ -1,6 +1,8 @@
 module github.com/go-data-exporter/exporter
 
-go 1.24
+go 1.23.0
+
+toolchain go1.24.2
 
 require github.com/go-data-exporter/gohive v0.0.0-20250624135104-252304603311
 

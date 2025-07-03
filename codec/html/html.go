@@ -97,6 +97,14 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		writer.Write([]byte(`</thead>`))
 	}
 	i := 0
+	defer func() {
+		if i != 0 {
+			writer.Write([]byte(`</tbody>`))
+			writer.Write([]byte(`</table></body></html>`))
+		} else if c.writeHeader && c.writeHeaderNoData && len(cols) != 0 {
+			writer.Write([]byte(`</table></body></html>`))
+		}
+	}()
 	for ; rows.Next(); i++ {
 		values, err := rows.ScanRow()
 		if err != nil {
@@ -129,12 +137,6 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			}
 			writer.Write([]byte(`</tr>`))
 		}
-	}
-	if i != 0 {
-		writer.Write([]byte(`</tbody>`))
-		writer.Write([]byte(`</table></body></html>`))
-	} else if c.writeHeader && c.writeHeaderNoData && len(cols) != 0 {
-		writer.Write([]byte(`</table></body></html>`))
 	}
 	return rows.Err()
 }
