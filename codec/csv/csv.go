@@ -8,11 +8,13 @@ import (
 	"reflect"
 
 	"github.com/go-data-exporter/exporter/scanner"
+	"github.com/go-data-exporter/exporter/tostring"
 )
 
 type csvCodec struct {
-	customMapper      map[reflect.Type]func(any, string, scanner.Column) string
+	customMapper      map[reflect.Type]func(any, string, scanner.Column) tostring.String
 	preProcessorFunc  func(row []string) ([]string, bool)
+	toStringFunc      func(v any) tostring.String
 	delimiter         rune
 	useCRLF           bool
 	writeHeader       bool
@@ -25,9 +27,9 @@ type Option func(*csvCodec)
 
 func New(opts ...Option) *csvCodec {
 	cw := &csvCodec{
-		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) string),
+		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) tostring.String),
 		delimiter:         ',',
-		useCRLF:           false,
+		toStringFunc:      tostring.ToString,
 		writeHeader:       true,
 		writeHeaderNoData: true,
 	}
@@ -37,16 +39,64 @@ func New(opts ...Option) *csvCodec {
 	return cw
 }
 
-func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) string) Option {
+func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) tostring.String) Option {
 	return func(cw *csvCodec) {
 		var zero T
 		typ := reflect.TypeOf(zero)
 		if cw.customMapper == nil {
-			cw.customMapper = make(map[reflect.Type]func(any, string, scanner.Column) string)
+			cw.customMapper = make(map[reflect.Type]func(any, string, scanner.Column) tostring.String)
 		}
-		cw.customMapper[typ] = func(v any, driver string, column scanner.Column) string {
+		cw.customMapper[typ] = func(v any, driver string, column scanner.Column) tostring.String {
 			return fn(v.(T), driver, column)
 		}
+	}
+}
+
+func WithPreProcessorFunc(fn func(row []string) ([]string, bool)) Option {
+	return func(cw *csvCodec) {
+		cw.preProcessorFunc = fn
+	}
+}
+
+func WithCustomToStringFunc(fn func(v any) tostring.String) Option {
+	return func(cw *csvCodec) {
+		cw.toStringFunc = fn
+	}
+}
+
+func WithCustomDelimiter(delimiter rune) Option {
+	return func(cw *csvCodec) {
+		cw.delimiter = delimiter
+	}
+}
+
+func WithCRLF(useCRLF bool) Option {
+	return func(cw *csvCodec) {
+		cw.useCRLF = useCRLF
+	}
+}
+
+func WithHeader(writeHeader bool) Option {
+	return func(cw *csvCodec) {
+		cw.writeHeader = writeHeader
+	}
+}
+
+func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
+	return func(cw *csvCodec) {
+		cw.writeHeaderNoData = writeHeaderNoData
+	}
+}
+
+func WithCustomHeader(customHeader []string) Option {
+	return func(cw *csvCodec) {
+		cw.customHeader = customHeader
+	}
+}
+
+func WithCustomNULL(nullValue string) Option {
+	return func(cw *csvCodec) {
+		cw.nullValue = nullValue
 	}
 }
 
@@ -104,44 +154,20 @@ func (cs *csvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	return rows.Err()
 }
 
-func WithPreProcessorFunc(fn func(row []string) ([]string, bool)) Option {
-	return func(cw *csvCodec) {
-		cw.preProcessorFunc = fn
+func (cs *csvCodec) toString(v any, driver string, column scanner.Column) string {
+	if v == nil {
+		return cs.nullValue
 	}
-}
-
-func WithCustomDelimiter(delimiter rune) Option {
-	return func(cw *csvCodec) {
-		cw.delimiter = delimiter
+	if fn, ok := cs.customMapper[reflect.TypeOf(v)]; ok {
+		s := fn(v, driver, column)
+		if s.IsNULL {
+			return cs.nullValue
+		}
+		return s.String
 	}
-}
-
-func WithCRLF(useCRLF bool) Option {
-	return func(cw *csvCodec) {
-		cw.useCRLF = useCRLF
+	s := cs.toStringFunc(v)
+	if s.IsNULL {
+		return cs.nullValue
 	}
-}
-
-func WithHeader(writeHeader bool) Option {
-	return func(cw *csvCodec) {
-		cw.writeHeader = writeHeader
-	}
-}
-
-func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
-	return func(cw *csvCodec) {
-		cw.writeHeaderNoData = writeHeaderNoData
-	}
-}
-
-func WithCustomHeader(customHeader []string) Option {
-	return func(cw *csvCodec) {
-		cw.customHeader = customHeader
-	}
-}
-
-func WithCustomNULL(nullValue string) Option {
-	return func(cw *csvCodec) {
-		cw.nullValue = nullValue
-	}
+	return s.String
 }

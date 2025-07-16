@@ -1,20 +1,19 @@
 package htmlcodec
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-data-exporter/exporter/scanner"
+	"github.com/go-data-exporter/exporter/tostring"
 )
 
 type htmlCodec struct {
-	customMapper      map[reflect.Type]func(any, string, scanner.Column) string
+	customMapper      map[reflect.Type]func(any, string, scanner.Column) tostring.String
 	preProcessorFunc  func(row []string) ([]string, bool)
+	toStringFunc      func(v any) tostring.String
 	writeHeader       bool
 	writeHeaderNoData bool
 	nullValue         string
@@ -24,9 +23,11 @@ type Option func(*htmlCodec)
 
 func New(opts ...Option) *htmlCodec {
 	cw := &htmlCodec{
-		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) string),
+		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) tostring.String),
 		writeHeader:       true,
 		writeHeaderNoData: true,
+		toStringFunc:      tostring.ToString,
+		nullValue:         `<span style="color:#aaaaaa;">[NULL]</span>`,
 	}
 	for _, opt := range opts {
 		opt(cw)
@@ -34,16 +35,46 @@ func New(opts ...Option) *htmlCodec {
 	return cw
 }
 
-func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) string) Option {
+func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) tostring.String) Option {
 	return func(cw *htmlCodec) {
 		var zero T
 		typ := reflect.TypeOf(zero)
 		if cw.customMapper == nil {
-			cw.customMapper = make(map[reflect.Type]func(any, string, scanner.Column) string)
+			cw.customMapper = make(map[reflect.Type]func(any, string, scanner.Column) tostring.String)
 		}
-		cw.customMapper[typ] = func(v any, driver string, column scanner.Column) string {
+		cw.customMapper[typ] = func(v any, driver string, column scanner.Column) tostring.String {
 			return fn(v.(T), driver, column)
 		}
+	}
+}
+
+func WithPreProcessorFunc(fn func(row []string) ([]string, bool)) Option {
+	return func(cw *htmlCodec) {
+		cw.preProcessorFunc = fn
+	}
+}
+
+func WithCustomToStringFunc(fn func(v any) tostring.String) Option {
+	return func(cw *htmlCodec) {
+		cw.toStringFunc = fn
+	}
+}
+
+func WithHeader(writeHeader bool) Option {
+	return func(cw *htmlCodec) {
+		cw.writeHeader = writeHeader
+	}
+}
+
+func WithCustomNULL(nullValue string) Option {
+	return func(cw *htmlCodec) {
+		cw.nullValue = nullValue
+	}
+}
+
+func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
+	return func(cw *htmlCodec) {
+		cw.writeHeaderNoData = writeHeaderNoData
 	}
 }
 
@@ -146,87 +177,15 @@ func (cs *htmlCodec) toString(v any, driver string, column scanner.Column) strin
 		return cs.nullValue
 	}
 	if fn, ok := cs.customMapper[reflect.TypeOf(v)]; ok {
-		return fn(v, driver, column)
-	}
-	switch v := v.(type) {
-	case string:
-		return v
-	case []byte:
-		return string(v)
-	case bool:
-		return strconv.FormatBool(v)
-	case int:
-		return strconv.Itoa(v)
-	case int8:
-		return strconv.FormatInt(int64(v), 10)
-	case int16:
-		return strconv.FormatInt(int64(v), 10)
-	case int32:
-		return strconv.FormatInt(int64(v), 10)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case uint:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint8:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint16:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint32:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint64:
-		return strconv.FormatUint(v, 10)
-	case time.Time:
-		if v.IsZero() {
+		s := fn(v, driver, column)
+		if s.IsNULL {
 			return cs.nullValue
 		}
-		return v.Format(time.RFC3339Nano)
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
+		return s.String
 	}
-	if jsonMarshaler, ok := v.(json.Marshaler); ok {
-		if jsonData, err := jsonMarshaler.MarshalJSON(); err == nil {
-			s := strings.Trim(string(jsonData), `"`)
-			if s == "[]" || s == "{}" || s == "null" {
-				return cs.nullValue
-			}
-			return s
-		}
+	s := cs.toStringFunc(v)
+	if s.IsNULL {
+		return cs.nullValue
 	}
-	if fmtStringer, ok := v.(fmt.Stringer); ok {
-		return fmtStringer.String()
-	}
-	if jsonData, err := json.Marshal(v); err == nil {
-		s := strings.Trim(string(jsonData), `"`)
-		if s == "[]" || s == "{}" || s == "null" {
-			return cs.nullValue
-		}
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-func WithPreProcessorFunc(fn func(row []string) ([]string, bool)) Option {
-	return func(cw *htmlCodec) {
-		cw.preProcessorFunc = fn
-	}
-}
-
-func WithHeader(writeHeader bool) Option {
-	return func(cw *htmlCodec) {
-		cw.writeHeader = writeHeader
-	}
-}
-
-func WithCustomNULL(nullValue string) Option {
-	return func(cw *htmlCodec) {
-		cw.nullValue = nullValue
-	}
-}
-
-func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
-	return func(cw *htmlCodec) {
-		cw.writeHeaderNoData = writeHeaderNoData
-	}
+	return s.String
 }
