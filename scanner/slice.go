@@ -55,7 +55,8 @@ func (s *sliceRowsScanner) Columns() ([]Column, error) {
 	if len(s.rows) != 0 {
 		for i, v := range s.rows[0] {
 			c := &mockColumn{
-				name: fmt.Sprintf("column_%d", i),
+				index: i,
+				name:  fmt.Sprintf("column_%d", i),
 			}
 			if v == nil {
 				c.goType = "nil"

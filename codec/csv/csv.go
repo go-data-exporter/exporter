@@ -1,4 +1,4 @@
-package csvcodec
+package cvcodec
 
 import (
 	"encoding/csv"
@@ -11,96 +11,96 @@ import (
 	"github.com/go-data-exporter/exporter/tostring"
 )
 
-type csvCodec struct {
-	customMapper      map[reflect.Type]func(any, string, scanner.Column) tostring.String
-	preProcessorFunc  func(row []string) ([]string, bool)
-	toStringFunc      func(v any) tostring.String
+type cvCodec struct {
+	customMapper      map[reflect.Type]func(any, scanner.Metadata) tostring.String
+	preProcessorFunc  func(rowID int, row []string) ([]string, bool)
 	delimiter         rune
 	useCRLF           bool
 	writeHeader       bool
 	writeHeaderNoData bool
 	customHeader      []string
 	nullValue         string
+	limit             int
 }
 
-type Option func(*csvCodec)
+type Option func(*cvCodec)
 
-func New(opts ...Option) *csvCodec {
-	cw := &csvCodec{
-		customMapper:      make(map[reflect.Type]func(any, string, scanner.Column) tostring.String),
+func New(opts ...Option) *cvCodec {
+	c := &cvCodec{
+		customMapper:      make(map[reflect.Type]func(any, scanner.Metadata) tostring.String),
 		delimiter:         ',',
-		toStringFunc:      tostring.ToString,
 		writeHeader:       true,
 		writeHeaderNoData: true,
+		limit:             -1,
 	}
 	for _, opt := range opts {
-		opt(cw)
+		opt(c)
 	}
-	return cw
+	return c
 }
 
-func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) tostring.String) Option {
-	return func(cw *csvCodec) {
+func WithCustomType[T any](fn func(v T, metadata scanner.Metadata) tostring.String) Option {
+	return func(c *cvCodec) {
 		var zero T
 		typ := reflect.TypeOf(zero)
-		if cw.customMapper == nil {
-			cw.customMapper = make(map[reflect.Type]func(any, string, scanner.Column) tostring.String)
+		if c.customMapper == nil {
+			c.customMapper = make(map[reflect.Type]func(any, scanner.Metadata) tostring.String)
 		}
-		cw.customMapper[typ] = func(v any, driver string, column scanner.Column) tostring.String {
-			return fn(v.(T), driver, column)
+		c.customMapper[typ] = func(v any, metadata scanner.Metadata) tostring.String {
+			return fn(v.(T), metadata)
 		}
 	}
 }
 
-func WithPreProcessorFunc(fn func(row []string) ([]string, bool)) Option {
-	return func(cw *csvCodec) {
-		cw.preProcessorFunc = fn
-	}
-}
-
-func WithCustomToStringFunc(fn func(v any) tostring.String) Option {
-	return func(cw *csvCodec) {
-		cw.toStringFunc = fn
+func WithPreProcessorFunc(fn func(rowID int, row []string) ([]string, bool)) Option {
+	return func(c *cvCodec) {
+		c.preProcessorFunc = fn
 	}
 }
 
 func WithCustomDelimiter(delimiter rune) Option {
-	return func(cw *csvCodec) {
-		cw.delimiter = delimiter
+	return func(c *cvCodec) {
+		c.delimiter = delimiter
 	}
 }
 
 func WithCRLF(useCRLF bool) Option {
-	return func(cw *csvCodec) {
-		cw.useCRLF = useCRLF
+	return func(c *cvCodec) {
+		c.useCRLF = useCRLF
 	}
 }
 
 func WithHeader(writeHeader bool) Option {
-	return func(cw *csvCodec) {
-		cw.writeHeader = writeHeader
+	return func(c *cvCodec) {
+		c.writeHeader = writeHeader
 	}
 }
 
 func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
-	return func(cw *csvCodec) {
-		cw.writeHeaderNoData = writeHeaderNoData
+	return func(c *cvCodec) {
+		c.writeHeaderNoData = writeHeaderNoData
 	}
 }
 
 func WithCustomHeader(customHeader []string) Option {
-	return func(cw *csvCodec) {
-		cw.customHeader = customHeader
+	return func(c *cvCodec) {
+		c.customHeader = customHeader
 	}
 }
 
 func WithCustomNULL(nullValue string) Option {
-	return func(cw *csvCodec) {
-		cw.nullValue = nullValue
+	return func(c *cvCodec) {
+		c.nullValue = nullValue
 	}
 }
 
-func (cs *csvCodec) Write(rows scanner.Rows, writer io.Writer) error {
+func WithLimit(limit int) Option {
+	return func(c *cvCodec) {
+		c.limit = limit
+	}
+}
+
+func (c *cvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		return err
@@ -110,64 +110,78 @@ func (cs *csvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		columnNames = append(columnNames, col.Name())
 	}
 	header := columnNames
-	if cs.customHeader != nil {
-		if len(cs.customHeader) != len(columnNames) {
+	if c.customHeader != nil {
+		if len(c.customHeader) != len(columnNames) {
 			return errors.New("invalid header length")
 		}
-		header = cs.customHeader
+		header = c.customHeader
 	}
-	csvCodec := csv.NewWriter(writer)
-	if cs.delimiter != 0 {
-		csvCodec.Comma = cs.delimiter
+	cvCodec := csv.NewWriter(writer)
+	if c.delimiter != 0 {
+		cvCodec.Comma = c.delimiter
 	}
-	csvCodec.UseCRLF = cs.useCRLF
-	defer csvCodec.Flush()
+	cvCodec.UseCRLF = c.useCRLF
+	defer cvCodec.Flush()
 
-	if cs.writeHeader && cs.writeHeaderNoData && len(header) != 0 {
-		if err = csvCodec.Write(header); err != nil {
+	if c.writeHeader && c.writeHeaderNoData && len(header) != 0 {
+		if err = cvCodec.Write(header); err != nil {
 			return fmt.Errorf("failed to write headers: %w", err)
 		}
 	}
-
-	for i := 0; rows.Next(); i++ {
+	if c.limit == 0 {
+		return nil
+	}
+	rowID := 1
+	for rows.Next() {
 		values, err := rows.ScanRow()
 		if err != nil {
 			return err
 		}
 		row := make([]string, len(values))
 		for i := range columnNames {
-			row[i] = cs.toString(values[i], rows.Driver(), cols[i])
+			meta := scanner.Metadata{
+				RowID:  rowID,
+				Driver: rows.Driver(),
+				Column: cols[i],
+			}
+			row[i] = c.toString(values[i], meta)
 		}
 		writeRow := true
-		if cs.preProcessorFunc != nil {
-			row, writeRow = cs.preProcessorFunc(row)
+		if c.preProcessorFunc != nil {
+			row, writeRow = c.preProcessorFunc(rowID, row)
 		}
 		if writeRow {
-			if cs.writeHeader && i == 0 && !cs.writeHeaderNoData {
-				if err = csvCodec.Write(header); err != nil {
+			if c.writeHeader && rowID == 1 && !c.writeHeaderNoData {
+				if err = cvCodec.Write(header); err != nil {
 					return fmt.Errorf("failed to write headers: %w", err)
 				}
 			}
-			csvCodec.Write(row)
+			if err = cvCodec.Write(row); err != nil {
+				return fmt.Errorf("could not write %d row: %s", rowID, err.Error())
+			}
+			if c.limit >= 0 && rowID >= c.limit {
+				return nil
+			}
+			rowID++
 		}
 	}
 	return rows.Err()
 }
 
-func (cs *csvCodec) toString(v any, driver string, column scanner.Column) string {
+func (c *cvCodec) toString(v any, metadata scanner.Metadata) string {
 	if v == nil {
-		return cs.nullValue
+		return c.nullValue
 	}
-	if fn, ok := cs.customMapper[reflect.TypeOf(v)]; ok {
-		s := fn(v, driver, column)
+	if fn, ok := c.customMapper[reflect.TypeOf(v)]; ok {
+		s := fn(v, metadata)
 		if s.IsNULL {
-			return cs.nullValue
+			return c.nullValue
 		}
 		return s.String
 	}
-	s := cs.toStringFunc(v)
+	s := tostring.ToString(v)
 	if s.IsNULL {
-		return cs.nullValue
+		return c.nullValue
 	}
 	return s.String
 }

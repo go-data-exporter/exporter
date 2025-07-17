@@ -6,7 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
+
+var jsonStd = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // String ...
 type String struct {
@@ -70,7 +74,7 @@ func ToString(v any) String {
 	if fmtStringer, ok := v.(fmt.Stringer); ok {
 		return String{fmtStringer.String(), false}
 	}
-	if jsonData, err := json.Marshal(v); err == nil {
+	if jsonData, err := jsonStd.Marshal(v); err == nil {
 		s := strings.Trim(string(jsonData), `"`)
 		// TODO (research): does [], {} mean NULL?
 		if s == "[]" || s == "{}" || s == "null" {

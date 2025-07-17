@@ -14,6 +14,16 @@ func FromSQL(rows *sql.Rows, driver string) Rows {
 	return &sqlRowsScanner{Rows: rows, driver: driver}
 }
 
+type sqlColumn struct {
+	*sql.ColumnType
+	index int
+}
+
+// Index ...
+func (c *sqlColumn) Index() int {
+	return c.index
+}
+
 func (s *sqlRowsScanner) Columns() ([]Column, error) {
 	if s.columns != nil {
 		return s.columns, nil
@@ -22,8 +32,11 @@ func (s *sqlRowsScanner) Columns() ([]Column, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range cc {
-		s.columns = append(s.columns, c)
+	for i, c := range cc {
+		s.columns = append(s.columns, &sqlColumn{
+			ColumnType: c,
+			index:      i,
+		})
 	}
 	return s.columns, nil
 }

@@ -7,3 +7,9 @@ type Rows interface {
 	Driver() string
 	Err() error
 }
+
+type Metadata struct {
+	RowID  int
+	Driver string
+	Column Column
+}

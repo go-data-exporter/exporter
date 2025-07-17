@@ -46,7 +46,7 @@ func (h *hiveRowsScanner) Columns() ([]Column, error) {
 		return h.columns, nil
 	}
 	cc := h.cursor.Description()
-	for _, c := range cc {
+	for i, c := range cc {
 		if len(c) == 0 {
 			continue
 		}
@@ -62,6 +62,7 @@ func (h *hiveRowsScanner) Columns() ([]Column, error) {
 			col.name = colName
 		}
 		col.hiveType = strings.TrimSuffix(col.hiveType, "_TYPE")
+		col.index = i
 		h.columns = append(h.columns, &col)
 	}
 	return h.columns, nil
@@ -76,8 +77,13 @@ func (h *hiveRowsScanner) Err() error {
 }
 
 type hiveColumn struct {
+	index    int
 	name     string
 	hiveType string
+}
+
+func (c *hiveColumn) Index() int {
+	return c.index
 }
 
 func (c *hiveColumn) Name() string {

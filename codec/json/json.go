@@ -1,58 +1,68 @@
 package jsoncodec
 
 import (
-	"encoding/json"
 	"io"
 	"reflect"
+
+	jsoniter "github.com/json-iterator/go"
 
 	"github.com/go-data-exporter/exporter/scanner"
 )
 
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
 type Option func(*jsonCodec)
 
 type jsonCodec struct {
-	customMapper     map[reflect.Type]func(any, string, scanner.Column) any
-	callback         func(row []string) ([]string, bool)
-	preProcessorFunc func(row map[string]any) (map[string]any, bool)
+	customMapper     map[reflect.Type]func(any, scanner.Metadata) any
+	preProcessorFunc func(rowID int, row map[string]any) (map[string]any, bool)
 	newlineDelimited bool
+	limit            int
 }
 
 func New(opts ...Option) *jsonCodec {
-	cw := &jsonCodec{
-		customMapper: make(map[reflect.Type]func(any, string, scanner.Column) any),
+	c := &jsonCodec{
+		customMapper: make(map[reflect.Type]func(any, scanner.Metadata) any),
+		limit:        -1,
 	}
 	for _, opt := range opts {
-		opt(cw)
+		opt(c)
 	}
-	return cw
+	return c
 }
 
-func WithPreProcessorFunc(fn func(row map[string]any) (map[string]any, bool)) Option {
-	return func(cw *jsonCodec) {
-		cw.preProcessorFunc = fn
+func WithPreProcessorFunc(fn func(rowID int, row map[string]any) (map[string]any, bool)) Option {
+	return func(c *jsonCodec) {
+		c.preProcessorFunc = fn
 	}
 }
 
 func WithNewlineDelimited(isNewlineDelimited bool) Option {
-	return func(cw *jsonCodec) {
-		cw.newlineDelimited = isNewlineDelimited
+	return func(c *jsonCodec) {
+		c.newlineDelimited = isNewlineDelimited
 	}
 }
 
-func WithCustomType[T any](fn func(v T, driver string, column scanner.Column) any) Option {
-	return func(cw *jsonCodec) {
+func WithCustomType[T any](fn func(v T, metadata scanner.Metadata) any) Option {
+	return func(c *jsonCodec) {
 		var zero T
 		typ := reflect.TypeOf(zero)
-		if cw.customMapper == nil {
-			cw.customMapper = make(map[reflect.Type]func(any, string, scanner.Column) any)
+		if c.customMapper == nil {
+			c.customMapper = make(map[reflect.Type]func(any, scanner.Metadata) any)
 		}
-		cw.customMapper[typ] = func(v any, driver string, column scanner.Column) any {
-			return fn(v.(T), driver, column)
+		c.customMapper[typ] = func(v any, metadata scanner.Metadata) any {
+			return fn(v.(T), metadata)
 		}
 	}
 }
 
-func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
+func WithLimit(limit int) Option {
+	return func(c *jsonCodec) {
+		c.limit = limit
+	}
+}
+
+func (c *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		return err
@@ -61,14 +71,16 @@ func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	for _, col := range cols {
 		columnNames = append(columnNames, col.Name())
 	}
-
-	i := 0
+	rowID := 1
 	defer func() {
-		if !cs.newlineDelimited && i != 0 {
+		if !c.newlineDelimited && rowID != 1 {
 			writer.Write([]byte("\n]\n"))
 		}
 	}()
-	for ; rows.Next(); i++ {
+	if c.limit == 0 {
+		return nil
+	}
+	for rows.Next() {
 		values, err := rows.ScanRow()
 		if err != nil {
 			return err
@@ -76,15 +88,20 @@ func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		row := make(map[string]any, len(values))
 		for i, col := range columnNames {
 			row[col] = values[i]
-			fn, ok := cs.customMapper[reflect.TypeOf(values[i])]
+			fn, ok := c.customMapper[reflect.TypeOf(values[i])]
 			if ok {
-				row[col] = fn(row[col], rows.Driver(), cols[i])
+				meta := scanner.Metadata{
+					RowID:  rowID,
+					Driver: rows.Driver(),
+					Column: cols[i],
+				}
+				row[col] = fn(row[col], meta)
 			}
 		}
 
 		writeRow := true
-		if cs.preProcessorFunc != nil {
-			row, writeRow = cs.preProcessorFunc(row)
+		if c.preProcessorFunc != nil {
+			row, writeRow = c.preProcessorFunc(rowID, row)
 		}
 		if !writeRow {
 			continue
@@ -94,11 +111,11 @@ func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if writeRow && !cs.newlineDelimited && i == 0 {
+		if writeRow && !c.newlineDelimited && rowID == 1 {
 			writer.Write([]byte("["))
 		}
-		if !cs.newlineDelimited {
-			if i != 0 {
+		if !c.newlineDelimited {
+			if rowID != 1 {
 				writer.Write([]byte(","))
 			}
 			writer.Write([]byte("\n"))
@@ -107,6 +124,10 @@ func (cs *jsonCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			writer.Write(data)
 			writer.Write([]byte("\n"))
 		}
+		if c.limit >= 0 && rowID >= c.limit {
+			return nil
+		}
+		rowID++
 	}
 	return nil
 }

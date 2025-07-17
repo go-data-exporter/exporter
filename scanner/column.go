@@ -3,6 +3,7 @@ package scanner
 import "reflect"
 
 type Column interface {
+	Index() int
 	Name() string
 	Length() (length int64, ok bool)
 	DecimalSize() (precision, scale int64, ok bool)
@@ -12,8 +13,13 @@ type Column interface {
 }
 
 type mockColumn struct {
+	index  int
 	name   string
 	goType string
+}
+
+func (c *mockColumn) Index() int {
+	return c.index
 }
 
 func (c *mockColumn) Name() string {
