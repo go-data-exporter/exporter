@@ -9,6 +9,7 @@ import (
 	csvcodec "github.com/go-data-exporter/exporter/codec/csv"
 	htmlcodec "github.com/go-data-exporter/exporter/codec/html"
 	jsoncodec "github.com/go-data-exporter/exporter/codec/json"
+	xmlcodec "github.com/go-data-exporter/exporter/codec/xml"
 	"github.com/go-data-exporter/exporter/scanner"
 )
 
@@ -34,4 +35,10 @@ func CSV(opts ...csvcodec.Option) Codec {
 // Optional configuration can be provided via functional options.
 func HTML(opts ...htmlcodec.Option) Codec {
 	return htmlcodec.New(opts...)
+}
+
+// XML returns a Codec that writes data in XML format.
+// Optional configuration can be provided via functional options.
+func XML(opts ...xmlcodec.Option) Codec {
+	return xmlcodec.New(opts...)
 }
