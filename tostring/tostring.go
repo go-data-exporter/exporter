@@ -1,3 +1,6 @@
+// Package tostring provides functionality to convert arbitrary Go values
+// into their string representation, while also detecting NULL or zero-equivalent values.
+// It is primarily used for consistent string serialization in data export scenarios.
 package tostring
 
 import (
@@ -10,15 +13,24 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+// jsonStd is a high-performance JSON encoder/decoder compatible with the standard library.
 var jsonStd = jsoniter.ConfigCompatibleWithStandardLibrary
 
-// String ...
+// String represents a string value along with a flag indicating whether it was NULL.
+// If IsNULL is true, then the value should be considered as NULL or absent.
 type String struct {
 	String string
 	IsNULL bool
 }
 
-// ToString ...
+// ToString converts an arbitrary value to a String type, which contains
+// a string representation of the value and a flag indicating if the value was NULL.
+//
+// The conversion logic supports common Go primitive types, slices, time.Time,
+// and types implementing json.Marshaler or fmt.Stringer interfaces.
+//
+// If the input is nil or represents an empty/null value (like zero time,
+// "null", "[]", or "{}" in JSON), the result will have IsNULL set to true.
 func ToString(v any) String {
 	if v == nil {
 		return String{"", true}

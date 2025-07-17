@@ -1,4 +1,8 @@
-package cvcodec
+// Package csvcodec provides an implementation of the Codec interface
+// for writing data in CSV (Comma-Separated Values) format. It supports
+// custom delimiters, NULL handling, optional headers, row preprocessing,
+// and type-specific string conversion.
+package csvcodec
 
 import (
 	"encoding/csv"
@@ -11,22 +15,27 @@ import (
 	"github.com/go-data-exporter/exporter/tostring"
 )
 
-type cvCodec struct {
-	customMapper      map[reflect.Type]func(any, scanner.Metadata) tostring.String
-	preProcessorFunc  func(rowID int, row []string) ([]string, bool)
+// csvCodec implements the Codec interface for exporting tabular data in CSV format.
+type csvCodec struct {
+	customMapper     map[reflect.Type]func(any, scanner.Metadata) tostring.String
+	preProcessorFunc func(rowID int, row []string) ([]string, bool)
+
 	delimiter         rune
 	useCRLF           bool
 	writeHeader       bool
 	writeHeaderNoData bool
 	customHeader      []string
-	nullValue         string
-	limit             int
+
+	nullValue string
+	limit     int
 }
 
-type Option func(*cvCodec)
+// Option defines a functional option for configuring the CSV codec.
+type Option func(*csvCodec)
 
-func New(opts ...Option) *cvCodec {
-	c := &cvCodec{
+// New creates a new CSV codec with the provided options.
+func New(opts ...Option) *csvCodec {
+	c := &csvCodec{
 		customMapper:      make(map[reflect.Type]func(any, scanner.Metadata) tostring.String),
 		delimiter:         ',',
 		writeHeader:       true,
@@ -39,8 +48,9 @@ func New(opts ...Option) *cvCodec {
 	return c
 }
 
+// WithCustomType registers a custom string conversion function for a specific Go type.
 func WithCustomType[T any](fn func(v T, metadata scanner.Metadata) tostring.String) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		var zero T
 		typ := reflect.TypeOf(zero)
 		if c.customMapper == nil {
@@ -52,55 +62,66 @@ func WithCustomType[T any](fn func(v T, metadata scanner.Metadata) tostring.Stri
 	}
 }
 
+// WithPreProcessorFunc sets a function to preprocess or filter each row before writing.
+// The function receives the row ID and the row values, and can return modified values or skip the row.
 func WithPreProcessorFunc(fn func(rowID int, row []string) ([]string, bool)) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.preProcessorFunc = fn
 	}
 }
 
+// WithCustomDelimiter sets a custom delimiter for the CSV file (default is comma).
 func WithCustomDelimiter(delimiter rune) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.delimiter = delimiter
 	}
 }
 
+// WithCRLF enables or disables CRLF line endings in the CSV output.
 func WithCRLF(useCRLF bool) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.useCRLF = useCRLF
 	}
 }
 
+// WithHeader controls whether the CSV output should include a header row.
 func WithHeader(writeHeader bool) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.writeHeader = writeHeader
 	}
 }
 
+// WithWriteHeaderWhenNoData controls whether a header should be written even when no data rows exist.
 func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.writeHeaderNoData = writeHeaderNoData
 	}
 }
 
+// WithCustomHeader sets a custom header to be used instead of automatically derived column names.
 func WithCustomHeader(customHeader []string) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.customHeader = customHeader
 	}
 }
 
+// WithCustomNULL sets the string to be used when representing NULL values in the output.
 func WithCustomNULL(nullValue string) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.nullValue = nullValue
 	}
 }
 
+// WithLimit sets a limit on the number of rows to write. A negative value means no limit.
 func WithLimit(limit int) Option {
-	return func(c *cvCodec) {
+	return func(c *csvCodec) {
 		c.limit = limit
 	}
 }
 
-func (c *cvCodec) Write(rows scanner.Rows, writer io.Writer) error {
+// Write writes the scanned rows to the given writer in CSV format.
+// It supports optional headers, row preprocessing, NULL conversion, and row limits.
+func (c *csvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		return err
@@ -116,15 +137,15 @@ func (c *cvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		}
 		header = c.customHeader
 	}
-	cvCodec := csv.NewWriter(writer)
+	csvWriter := csv.NewWriter(writer)
 	if c.delimiter != 0 {
-		cvCodec.Comma = c.delimiter
+		csvWriter.Comma = c.delimiter
 	}
-	cvCodec.UseCRLF = c.useCRLF
-	defer cvCodec.Flush()
+	csvWriter.UseCRLF = c.useCRLF
+	defer csvWriter.Flush()
 
 	if c.writeHeader && c.writeHeaderNoData && len(header) != 0 {
-		if err = cvCodec.Write(header); err != nil {
+		if err = csvWriter.Write(header); err != nil {
 			return fmt.Errorf("failed to write headers: %w", err)
 		}
 	}
@@ -152,11 +173,11 @@ func (c *cvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 		}
 		if writeRow {
 			if c.writeHeader && rowID == 1 && !c.writeHeaderNoData {
-				if err = cvCodec.Write(header); err != nil {
+				if err = csvWriter.Write(header); err != nil {
 					return fmt.Errorf("failed to write headers: %w", err)
 				}
 			}
-			if err = cvCodec.Write(row); err != nil {
+			if err = csvWriter.Write(row); err != nil {
 				return fmt.Errorf("could not write %d row: %s", rowID, err.Error())
 			}
 			if c.limit >= 0 && rowID >= c.limit {
@@ -168,7 +189,10 @@ func (c *cvCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	return rows.Err()
 }
 
-func (c *cvCodec) toString(v any, metadata scanner.Metadata) string {
+// toString converts a single value to its string representation,
+// using a custom type mapper if available, or falling back to the default converter.
+// If the value is NULL, the configured nullValue is returned.
+func (c *csvCodec) toString(v any, metadata scanner.Metadata) string {
 	if v == nil {
 		return c.nullValue
 	}

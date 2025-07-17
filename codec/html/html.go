@@ -1,3 +1,6 @@
+// Package htmlcodec provides an HTML implementation of the Codec interface,
+// generating well-formatted HTML tables with optional headers, NULL styling,
+// row preprocessing, and type-specific string conversion.
 package htmlcodec
 
 import (
@@ -10,17 +13,21 @@ import (
 	"github.com/go-data-exporter/exporter/tostring"
 )
 
+// htmlCodec implements the Codec interface to export tabular data as HTML.
 type htmlCodec struct {
 	customMapper      map[reflect.Type]func(any, scanner.Metadata) tostring.String
 	preProcessorFunc  func(rowID int, row []string) ([]string, bool)
 	writeHeader       bool
 	writeHeaderNoData bool
-	nullValue         string
-	limit             int
+
+	nullValue string
+	limit     int
 }
 
+// Option defines a functional configuration option for htmlCodec.
 type Option func(*htmlCodec)
 
+// New creates a new HTML codec with the provided configuration options.
 func New(opts ...Option) *htmlCodec {
 	c := &htmlCodec{
 		customMapper:      make(map[reflect.Type]func(any, scanner.Metadata) tostring.String),
@@ -35,6 +42,7 @@ func New(opts ...Option) *htmlCodec {
 	return c
 }
 
+// WithCustomType registers a custom string conversion function for a specific Go type.
 func WithCustomType[T any](fn func(v T, metadata scanner.Metadata) tostring.String) Option {
 	return func(c *htmlCodec) {
 		var zero T
@@ -48,50 +56,59 @@ func WithCustomType[T any](fn func(v T, metadata scanner.Metadata) tostring.Stri
 	}
 }
 
+// WithPreProcessorFunc sets a function to preprocess or filter each row before writing.
 func WithPreProcessorFunc(fn func(rowID int, row []string) ([]string, bool)) Option {
 	return func(c *htmlCodec) {
 		c.preProcessorFunc = fn
 	}
 }
 
+// WithHeader controls whether the HTML output should include a header row.
 func WithHeader(writeHeader bool) Option {
 	return func(c *htmlCodec) {
 		c.writeHeader = writeHeader
 	}
 }
 
+// WithCustomNULL sets the HTML string to be used for NULL values.
 func WithCustomNULL(nullValue string) Option {
 	return func(c *htmlCodec) {
 		c.nullValue = nullValue
 	}
 }
 
+// WithWriteHeaderWhenNoData controls whether a header should be written even when no data rows exist.
 func WithWriteHeaderWhenNoData(writeHeaderNoData bool) Option {
 	return func(c *htmlCodec) {
 		c.writeHeaderNoData = writeHeaderNoData
 	}
 }
 
+// WithLimit sets a limit on the number of rows to write. Negative means unlimited.
 func WithLimit(limit int) Option {
 	return func(c *htmlCodec) {
 		c.limit = limit
 	}
 }
 
+// Write writes the scanned rows as an HTML table to the provided writer.
+// It supports headers, NULL styling, row limits, and optional preprocessing.
 func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		return err
 	}
+
 	if c.writeHeader && c.writeHeaderNoData && len(cols) != 0 {
 		writer.Write([]byte(htmlPrefix))
 		writer.Write([]byte(`<thead style="position:sticky;top:0;z-index:99;background:#f9f9f9;">`))
 		for _, col := range cols {
-			writer.Write(fmt.Appendf(nil, "<th><p>%s</p><p class=typ>%s</p></th>", col.Name(),
-				strings.ToLower(col.DatabaseTypeName())))
+			writer.Write(fmt.Appendf(nil, "<th><p>%s</p><p class=typ>%s</p></th>",
+				col.Name(), strings.ToLower(col.DatabaseTypeName())))
 		}
 		writer.Write([]byte(`</thead>`))
 	}
+
 	rowID := 1
 	defer func() {
 		if rowID != 1 {
@@ -101,9 +118,11 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			writer.Write([]byte(`</table></body></html>`))
 		}
 	}()
+
 	if c.limit == 0 {
 		return nil
 	}
+
 	for rows.Next() {
 		values, err := rows.ScanRow()
 		if err != nil {
@@ -118,6 +137,7 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			}
 			row[i] = c.toString(values[i], meta)
 		}
+
 		writeRow := true
 		if c.preProcessorFunc != nil {
 			row, writeRow = c.preProcessorFunc(rowID, row)
@@ -127,8 +147,8 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 				writer.Write([]byte(htmlPrefix))
 				writer.Write([]byte(`<thead style="position:sticky;top:0;z-index:99;background:#f9f9f9;">`))
 				for _, col := range cols {
-					writer.Write(fmt.Appendf(nil, "<th><p>%s</p><p class=typ>%s</p></th>", col.Name(),
-						strings.ToLower(col.DatabaseTypeName())))
+					writer.Write(fmt.Appendf(nil, "<th><p>%s</p><p class=typ>%s</p></th>",
+						col.Name(), strings.ToLower(col.DatabaseTypeName())))
 				}
 				writer.Write([]byte(`</thead>`))
 			}
@@ -146,9 +166,12 @@ func (c *htmlCodec) Write(rows scanner.Rows, writer io.Writer) error {
 			rowID++
 		}
 	}
+
 	return rows.Err()
 }
 
+// toString converts a value to a string using a custom mapper if available,
+// or falls back to default conversion logic. Returns nullValue if the value is considered NULL.
 func (c *htmlCodec) toString(v any, metadata scanner.Metadata) string {
 	if v == nil {
 		return c.nullValue
@@ -167,6 +190,7 @@ func (c *htmlCodec) toString(v any, metadata scanner.Metadata) string {
 	return s.String
 }
 
+// htmlPrefix defines the beginning of the HTML document including styles and table structure.
 var htmlPrefix = strings.Join(strings.Fields(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Go Export</title><style>
 	body, html {
 	  margin: 0;
@@ -190,11 +214,11 @@ var htmlPrefix = strings.Join(strings.Fields(`<!DOCTYPE html><html><head><meta c
 	  max-width:700px;
 	  overflow-x: auto;
 	  white-space: nowrap;
-	  scrollbar-width: none; /* Firefox */
-	  -ms-overflow-style: none; /* IE и Edge */
+	  scrollbar-width: none;
+	  -ms-overflow-style: none;
 	}
 	.td::-webkit-scrollbar {
-	  display: none; /* Chrome, Safari, Opera */
+	  display: none;
 	}
 	p.typ {
 	  margin-top: 5px;
