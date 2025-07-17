@@ -4,6 +4,7 @@
 
 - **CSV**
 - **JSON** (standard or newline-delimited)
+- **XML**
 - **HTML**
 
 ## Features
@@ -181,9 +182,10 @@ Out of the box, the library provides codecs for exporting data to:
 
 - **CSV** — standard comma-separated values with customizable options.
 - **JSON** — standard or newline-delimited (JSON Lines).
+- **XML** — XML.
 - **HTML** — styled HTML tables with optional headers and cell formatting.
 
-> ✅ Currently, only CSV, JSON, and HTML are officially supported.
+> ✅ Currently, only CSV, JSON, XML and HTML are officially supported.
 
 ### Custom Codecs
 
